@@ -1220,7 +1220,7 @@ ATURAN WAJIB:
       <aside className="w-full md:w-64 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-6 border-b border-gray-200 flex items-center gap-3">
           <div className="p-2 rounded-lg text-white" style={{ backgroundColor: cPrimary }}><Layers size={20} /></div>
-          <div><h1 className="font-bold text-gray-900 tracking-tight">Design System</h1><p className="text-xs text-gray-500">Variabel & Token</p></div>
+          <div><h1 className="font-bold text-gray-900 tracking-tight">dsm-sid</h1><p className="text-xs text-gray-500">Variabel & Token</p></div>
         </div>
         
         <nav className="p-4 flex-grow space-y-1">

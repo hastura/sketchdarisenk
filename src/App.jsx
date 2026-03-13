@@ -27,6 +27,7 @@ import {
 
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY; // Scope level modul untuk injeksi environment
+const GEMINI_MODELS = ['gemini-3-flash-preview','gemini-2.0-flash','gemini-1.5-flash'];
 
 // --- COLOR MATH HELPERS UNTUK GENERATOR TEMA OTOMATIS ---
 const hexToHSL = (hex) => {
@@ -133,7 +134,8 @@ const callGeminiAPI = async (payload) => {
   
   for (let i = 0; i < 6; i++) {
     try {
-      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`, {
+      const model = payload.model || 'gemini-3-flash-preview';
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
       if (response.ok) return await response.json();
@@ -158,6 +160,138 @@ const setNestedObject = (obj, path, value) => {
   current[keys[keys.length - 1]] = value;
 };
 
+const xmlEscape = (str) => {
+  if (typeof str !== 'string') return String(str || '');
+  return str.replace(/[<>&"']/g, (c) => {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '"': return '&quot;';
+      case "'": return '&apos;';
+      default: return c;
+    }
+  });
+};
+
+const stitchSvgWithDRD = (baseSvg, drd, title) => {
+  if (!drd || typeof drd !== 'object') return baseSvg;
+  
+  try {
+    // 1. Bersihkan SVG dasar
+    let svgContent = (baseSvg || '').trim()
+      .replace(/^<\?xml.*?\?>/i, '')
+      .replace(/^<!DOCTYPE.*?>/i, '');
+    
+    const startTagMatch = svgContent.match(/<svg[^>]*>/i);
+    const endTagIndex = svgContent.lastIndexOf('</svg>');
+    
+    let innerContent = '';
+    if (startTagMatch && endTagIndex !== -1) {
+      const startTagEndIndex = startTagMatch.index + startTagMatch[0].length;
+      innerContent = svgContent.substring(startTagEndIndex, endTagIndex).trim();
+    } else {
+      innerContent = svgContent;
+    }
+
+    // 2. Siapkan data dokumentasi
+    const obj = xmlEscape(drd.objective);
+    const rat = xmlEscape(drd.rationale);
+    const acc = xmlEscape(drd.accessibility);
+    const beh = xmlEscape(drd.behavior);
+    const tok = xmlEscape(Array.isArray(drd.tokens_used) ? drd.tokens_used.join(', ') : (drd.tokens_used || ''));
+
+    const wrap = (text, x, y, lineHeight, maxChars) => {
+      const words = text.split(' ');
+      let lines = [];
+      let currentLine = '';
+      words.forEach(word => {
+        if ((currentLine + word).length > maxChars) {
+          if (currentLine) lines.push(currentLine.trim());
+          currentLine = word + ' ';
+        } else {
+          currentLine += word + ' ';
+        }
+      });
+      if (currentLine) lines.push(currentLine.trim());
+      return lines.map((line, i) => 
+        `<tspan x="${x}" dy="${i === 0 ? 0 : lineHeight}">${line}</tspan>`
+      ).join('');
+    };
+
+    // Ambil viewBox atau dimensi untuk centering
+    let vb = [0, 0, 800, 600]; // Default
+    if (startTagMatch) {
+      const vbMatch = startTagMatch[0].match(/viewBox=["']([^"']+)["']/i);
+      if (vbMatch) {
+        vb = vbMatch[1].split(/[\s,]+/).map(Number);
+      } else {
+        const wMatch = startTagMatch[0].match(/width=["'](\d+)["']/i);
+        const hMatch = startTagMatch[0].match(/height=["'](\d+)["']/i);
+        if (wMatch && hMatch) vb = [0, 0, Number(wMatch[1]), Number(hMatch[1])];
+      }
+    }
+
+    const compW = vb[2] || 800;
+    const compH = vb[3] || 600;
+    const scale = Math.min(680 / compW, 440 / compH, 1);
+    const offsetX = (720 - (compW * scale)) / 2;
+    const offsetY = (480 - (compH * scale)) / 2;
+
+    // 4. Rakit SVG final (Layout Screenshot)
+    return `<svg width="800" height="1200" viewBox="0 0 800 1200" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="1200" fill="white" />
+  
+  <!-- SHOWCASE AREA -->
+  <rect x="40" y="40" width="720" height="480" fill="#f3f4f6" rx="12" />
+  <g transform="translate(40, 40)">
+     <g transform="translate(${offsetX}, ${offsetY}) scale(${scale})">
+        ${innerContent}
+     </g>
+  </g>
+
+  <!-- DOCUMENTATION AREA -->
+  <g transform="translate(40, 560)">
+    <rect width="720" height="600" fill="white" rx="32" stroke="#f1f5f9" stroke-width="1" />
+    <text x="32" y="45" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="bold" fill="#3B82F6" letter-spacing="0.5">DESIGN REQUIREMENT DOCUMENT</text>
+    <line x1="32" y1="65" x2="688" y1="65" stroke="#f1f5f9" stroke-width="1" />
+    
+    <text font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="bold" fill="#94A3B8">
+      <tspan x="32" y="100">OBJECTIVE &amp; DESIGN RATIONALE</tspan>
+    </text>
+    <text font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="bold" fill="#1e293b">
+      <tspan x="32" y="130">${wrap(obj, 32, 130, 24, 55)}</tspan>
+    </text>
+    <text font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b" font-style="italic">
+      <tspan x="32" y="240">${wrap(rat, 32, 240, 18, 80)}</tspan>
+    </text>
+    
+    <text font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="bold" fill="#94A3B8">
+      <tspan x="32" y="400">ACCESSIBILITY (WCAG) / INTERACTION BEHAVIOR</tspan>
+    </text>
+    <text font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#475569">
+      <tspan x="32" y="425">${wrap(acc, 32, 425, 20, 35)}</tspan>
+    </text>
+    <text font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#475569">
+      <tspan x="380" y="425">${wrap(beh, 380, 425, 20, 35)}</tspan>
+    </text>
+    
+    <text font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="bold" fill="#94A3B8">
+      <tspan x="32" y="520">DESIGN SYSTEM TOKENS</tspan>
+    </text>
+    <text font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#3B82F6" font-weight="semibold">
+      <tspan x="32" y="545">${tok}</tspan>
+    </text>
+  </g>
+  
+  <text x="40" y="1180" font-family="Arial, sans-serif" font-size="10" fill="#94A3B8">Generated by dsm-sid AI Assistant</text>
+</svg>`.trim();
+  } catch (e) {
+    console.error("SVG Stitching error:", e);
+    return baseSvg;
+  }
+};
+
 const generateTokensJSON = (designVariables) => {
   const tokens = {};
   designVariables.colors.forEach(group => {
@@ -180,7 +314,7 @@ const generateTokensJSON = (designVariables) => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('colors');
+  const [activeTab, setActiveTab] = useState('ai');
   const [copiedVar, setCopiedVar] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -252,6 +386,13 @@ export default function App() {
   const [linterInput, setLinterInput] = useState('<!-- Contoh kode mentah -->\n<button style="background-color: #3b82f6; border-radius: 6px; padding: 12px 24px;">\n  Simpan Data\n</button>');
   const [linterOutput, setLinterOutput] = useState('');
   const [isLinting, setIsLinting] = useState(false);
+
+  // --- STATE UNTUK AI COMPONENT GENERATOR ---
+  const [aiCompPrompt, setAiCompPrompt] = useState('');
+  const [isGeneratingComp, setIsGeneratingComp] = useState(false);
+  const [generatedComp, setGeneratedComp] = useState(null);
+  const [showAiCodeModal, setShowAiCodeModal] = useState(false);
+  const [activeModel, setActiveModel] = useState(GEMINI_MODELS[0]);
 
   const [compSubTab, setCompSubTab] = useState('figma'); 
   const [framework, setFramework] = useState('react'); 
@@ -372,13 +513,13 @@ ATURAN WAJIB:
   };
 
   const tabs = [
+    { id: 'ai', label: 'Home / AI Assistant', icon: Sparkles },
     { id: 'colors', label: 'Warna', icon: Palette },
     { id: 'typography', label: 'Tipografi', icon: Type },
     { id: 'spacing', label: 'Spasi', icon: Ruler },
     { id: 'radius', label: 'Radius', icon: Square },
     { id: 'components', label: 'Komponen', icon: Layout },
     { id: 'linter', label: '✨ Token Linter', icon: Code2 },
-    { id: 'ai', label: '✨ Asisten AI', icon: Sparkles },
   ];
 
   const ComponentPreview = ({ title, figmaSvg, children, id, isBlock = false }) => (
@@ -387,7 +528,7 @@ ATURAN WAJIB:
       <div className={`relative ${isBlock ? 'block h-full' : 'inline-block'}`}>
         {children}
         {figmaSvg && (
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-all duration-200 z-50 pointer-events-none flex flex-col items-center">
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-all duration-200 z-[100] pointer-events-none flex flex-col items-center">
              <button 
                onClick={() => handleCopy(figmaSvg, id)}
                className="pointer-events-auto whitespace-nowrap relative bg-gray-900/95 backdrop-blur-sm text-white text-xs px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-800 shadow-xl border border-gray-700 transform translate-y-2 group-hover:translate-y-0 transition-all"
@@ -480,7 +621,34 @@ ATURAN WAJIB:
     setInputValue(''); setIsLoadingChat(true);
 
     try {
-      const systemPrompt = `Anda adalah asisten UI/UX Design System yang membantu. Jawab dalam Bahasa Indonesia. Sistem desain pengguna: ${JSON.stringify(currentDesignVariables)}`;
+      const systemPrompt = `Anda adalah asisten UI/UX Design System yang proaktif. Jawab dalam Bahasa Indonesia.
+      Sistem desain saat ini: ${JSON.stringify(currentDesignVariables)}
+      
+      Jika pengguna meminta untuk membuat komponen UI, Anda HARUS menyertakan blok kode JSON khusus di dalam jawaban Anda dengan format seperti ini:
+      
+      \`\`\`json
+      {
+        "type": "component_card",
+        "title": "Nama Komponen",
+        "drd": {
+          "objective": "Tujuan utama komponen",
+          "rationale": "Alasan pemilihan desain dan estetika",
+          "tokens_used": ["token-1", "token-2"],
+          "accessibility": "Catatan aksesibilitas (W3C)",
+          "behavior": "Cara interaksi"
+        },
+        "svg": "<svg>...</svg>",
+        "code": "/* Kode React + Tailwind */"
+      }
+      \`\`\`
+      
+      PENTING: 
+      - SVG harus valid dan bisa langsung di-copy-paste ke Figma.
+      - SVG komponen harus memiliki viewBox yang LEBAR (misal: 0 0 600 400) dan teks harus dibungkus (wrap) agar TIDAK terpotong.
+      - Berikan Mini DRD (Design Requirement Document) dalam format JSON.
+      - Kode React harus menggunakan Tailwind CSS.
+      - Berikan penjelasan singkat sebelum atau sesudah blok JSON tersebut.`;
+
       const validHistory = messages.slice(1).filter(msg => !msg.content.startsWith('⚠️'));
       const contents = []; let lastRole = null;
       for (const msg of validHistory) {
@@ -491,19 +659,170 @@ ATURAN WAJIB:
       if (lastRole === 'user' && contents.length > 0) { contents[contents.length - 1].parts[0].text += '\n\n' + userText; } 
       else { contents.push({ role: 'user', parts: [{ text: userText }] }); }
 
-      const payload = { contents, systemInstruction: { parts: [{ text: systemPrompt }] } };
+      const payload = { 
+        model: activeModel,
+        contents, 
+        systemInstruction: { parts: [{ text: systemPrompt }] } 
+      };
       const data = await callGeminiAPI(payload);
       const modelText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Maaf, saya tidak dapat menghasilkan tanggapan.";
       setMessages(prev => [...prev, { role: 'model', content: modelText }]);
     } catch (error) { setMessages(prev => [...prev, { role: 'model', content: `⚠️ Kesalahan menghubungkan ke AI: ${error.message}. Silakan coba lagi nanti.` }]); } finally { setIsLoadingChat(false); }
   };
 
+  const generateComponentWithAI = async () => {
+    if (!aiCompPrompt.trim()) return;
+    setIsGeneratingComp(true);
+    setGeneratedComp(null);
+
+    const payload = {
+      model: activeModel,
+      contents: [{ 
+        role: "user", 
+        parts: [{ text: `Buatkan komponen UI berdasarkan deskripsi ini: ${aiCompPrompt}` }] 
+      }],
+      systemInstruction: { 
+        parts: [{ text: `Anda adalah UI/UX Expert dan Senior Frontend Developer. 
+        Gunakan Design System berikut: ${JSON.stringify(currentDesignVariables)}
+        
+        Tugas Anda:
+        1. Buat kode SVG yang valid dan INDAH untuk komponen tersebut.
+           - Gunakan font-family="Inter, sans-serif".
+           - SVG ini harus terlihat profesional saat di-paste ke Figma.
+        2. Buat MINI DESIGN REQUIREMENT DOCUMENT (DRD) yang mencakup: Objective, Rationale, Tokens Used, Accessibility, dan Behavior.
+        3. Buat kode React + Tailwind CSS untuk komponen tersebut.
+           - Gunakan Lucide icons jika perlu.
+           - Gunakan variabel CSS dari design system (misal: var(--color-brand-500)).
+        
+        Patuhi aturan:
+        - JANGAN memberikan teks penjelasan, HANYA JSON.
+        - Output JSON harus memuat: title, drd (object), svg, code.
+        
+        Format:
+        { "title": "...", "drd": { "objective": "...", "rationale": "...", "tokens_used": [], "accessibility": "...", "behavior": "..." }, "svg": "<svg>...</svg>", "code": "..." }` }] 
+      },
+      generationConfig: {
+        responseMimeType: "application/json"
+      }
+    };
+
+    try {
+      const data = await callGeminiAPI(payload);
+      const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (textResponse) {
+        setGeneratedComp(JSON.parse(textResponse));
+      }
+    } catch (error) {
+      alert("Gagal mengenerate komponen: " + error.message);
+    } finally {
+      setIsGeneratingComp(false);
+    }
+  };
+
   const formatMessage = (text) => {
     if (!text) return null;
-    const parts = text.split(/(```[\s\S]*?```)/g);
+    const parts = text.split(/(```(?:json)?[\s\S]*?```)/g);
     return parts.map((part, index) => {
       if (part.startsWith('```')) {
-        const code = part.replace(/^```[\w]*\n/, '').replace(/\n```$/, '').trim();
+        const rawContent = part.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+        
+        // Cek apakah ini adalah component card JSON
+        try {
+          const parsed = JSON.parse(rawContent);
+          if (parsed && parsed.type === 'component_card') {
+            return (
+              <div key={index} className="my-6 w-full animate-in zoom-in-95 duration-300">
+                <div className="bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                    <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
+                       <Figma size={14} className="text-pink-500" /> {parsed.title}
+                    </span>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          const fullSvg = stitchSvgWithDRD(parsed.svg, parsed.drd, parsed.title);
+                          handleCopy(fullSvg, `chat-copy-figma-${index}`);
+                        }}
+                        className="text-[10px] bg-white border border-gray-200 text-gray-700 px-3 py-1.5 rounded-lg font-bold hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-1.5"
+                      >
+                        {copiedVar === `chat-copy-figma-${index}` ? <CheckCircle2 size={12} className="text-green-500" /> : <Figma size={12} className="text-pink-500" />}
+                        COPY TO FIGMA
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setGeneratedComp({ title: parsed.title, drd: parsed.drd, svg: parsed.svg, code: parsed.code });
+                          setShowAiCodeModal(true);
+                        }}
+                        className="text-[10px] bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm"
+                      >
+                        VIEW CODE
+                      </button>
+                    </div>
+                  </div>
+                  <div className="p-12 flex flex-col items-center bg-[#f3f4f6]/80 relative overflow-hidden min-h-[400px] justify-center">
+                    <div className="w-full overflow-x-auto pt-10 pb-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+                      <ComponentPreview id={`chat-svg-${index}`} figmaSvg={stitchSvgWithDRD(parsed.svg, parsed.drd, parsed.title)}>
+                        <div className="flex flex-col items-center min-w-max px-4">
+                          <div 
+                            className="bg-white shadow-2xl rounded-2xl overflow-hidden border border-gray-100" 
+                            dangerouslySetInnerHTML={{ __html: parsed.svg }} 
+                          />
+                        </div>
+                      </ComponentPreview>
+                    </div>
+                  </div>
+                  {parsed.drd && (
+                    <div className="px-8 py-12 bg-white border-t border-gray-100">
+                      <div className="w-full bg-[#f8fafc] border border-gray-100/50 rounded-[28px] p-10 shadow-sm">
+                        <h5 className="text-lg font-bold text-blue-500 mb-8 border-b border-gray-100/50 pb-5">
+                          DESIGN REQUIREMENT DOCUMENT
+                        </h5>
+                        <div className="space-y-12">
+                          <div>
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-4">OBJECTIVE & DESIGN RATIONALE</span>
+                            <p className="text-xl text-gray-900 font-bold leading-tight mb-3">
+                              {parsed.drd.objective}
+                            </p>
+                            {parsed.drd.rationale && (
+                              <p className="text-sm text-gray-500 italic leading-relaxed">
+                                {parsed.drd.rationale}
+                              </p>
+                            )}
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-16 gap-y-8">
+                            <div>
+                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-4">ACCESSIBILITY (WCAG)</span>
+                              <p className="text-sm text-gray-600 leading-relaxed">{parsed.drd.accessibility}</p>
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-4">INTERACTION BEHAVIOR</span>
+                              <p className="text-sm text-gray-600 leading-relaxed">{parsed.drd.behavior}</p>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-4">DESIGN SYSTEM TOKENS</span>
+                            <p className="text-sm text-blue-500 font-semibold">
+                              {(parsed.drd.tokens_used || []).join(', ')}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-center">
+                    <p className="text-[10px] text-gray-400 italic">Copy to Figma enabled • Click View Code for React source</p>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+        } catch (e) {
+          // Bukan JSON kartu komponen, lanjut sebagai blok kode biasa
+        }
+
+        const code = rawContent;
         return (
           <div key={index} className="relative mt-2 mb-4 group">
              <div className="absolute top-2 right-2 flex gap-2">
@@ -956,8 +1275,206 @@ ATURAN WAJIB:
       <div className="flex gap-4 border-b border-gray-200 mb-6">
         <button onClick={() => setCompSubTab('figma')} className={`pb-3 text-sm font-medium transition-colors flex items-center gap-2 border-b-2 ${compSubTab === 'figma' ? 'border-pink-500 text-pink-600' : 'border-transparent text-gray-500 hover:text-gray-800'}`}><Figma size={16} /> Figma Components</button>
         <button onClick={() => setCompSubTab('code')} className={`pb-3 text-sm font-medium transition-colors flex items-center gap-2 border-b-2 ${compSubTab === 'code' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-800'}`}><Code2 size={16} /> Framework Components (Code)</button>
+        <button onClick={() => setCompSubTab('ai-gen')} className={`pb-3 text-sm font-medium transition-colors flex items-center gap-2 border-b-2 ${compSubTab === 'ai-gen' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-800'}`}><Sparkles size={16} /> AI Component Generator</button>
       </div>
-      {compSubTab === 'figma' ? renderFigmaComponents() : renderCodeComponents()}
+      {compSubTab === 'figma' && renderFigmaComponents()}
+      {compSubTab === 'code' && renderCodeComponents()}
+      {compSubTab === 'ai-gen' && renderAIComponentGenerator()}
+    </div>
+  );
+
+  const renderAIComponentGenerator = () => (
+    <div className="space-y-8 animate-in fade-in duration-300">
+      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-purple-100 text-purple-600 rounded-lg"><Sparkles size={20} /></div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800">AI Component Generator</h3>
+            <p className="text-sm text-gray-600">Deskripsikan komponen yang ingin Anda buat, dan AI akan merancangnya sesuai Design System Anda.</p>
+          </div>
+        </div>
+        
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-1 flex gap-3">
+            <input 
+              type="text" 
+              value={aiCompPrompt} 
+              onChange={(e) => setAiCompPrompt(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && generateComponentWithAI()}
+              placeholder="Contoh: Buatkan sidebar dengan 3 menu dan profil di bawah..." 
+              className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
+              disabled={isGeneratingComp}
+            />
+            <button 
+              onClick={generateComponentWithAI}
+              disabled={isGeneratingComp || !aiCompPrompt.trim()}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2 disabled:opacity-70 shadow-sm"
+            >
+              {isGeneratingComp ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <><Send size={18} /> Generate</>
+              )}
+            </button>
+          </div>
+          
+          <div className="w-full md:w-64">
+            <div className="relative">
+              <select 
+                value={activeModel} 
+                onChange={(e) => setActiveModel(e.target.value)}
+                className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
+              >
+                {GEMINI_MODELS.map(model => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
+              </select>
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                <Sparkles size={16} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {generatedComp && (
+        <div className="flex flex-col items-center animate-in slide-in-from-bottom-4 duration-500">
+          <div className="w-full bg-white rounded-2xl border border-gray-200 shadow-lg overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+              <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Figma size={16} className="text-pink-500" /> Figma Preview
+              </h4>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => {
+                    const fullSvg = stitchSvgWithDRD(generatedComp.svg, generatedComp.drd, generatedComp.title);
+                    handleCopy(fullSvg, 'ai-comp-gen-figma');
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 hover:bg-gray-50 border border-gray-200 rounded-lg text-sm font-semibold transition-all shadow-sm"
+                >
+                  {copiedVar === 'ai-comp-gen-figma' ? <CheckCircle2 size={16} className="text-green-500" /> : <Figma size={16} className="text-pink-500" />}
+                  Copy to Figma
+                </button>
+                <button 
+                  onClick={() => setShowAiCodeModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 rounded-lg text-sm font-semibold transition-all"
+                >
+                  <Code2 size={16} /> Lihat Kode React
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-16 flex flex-col items-center bg-[#f3f4f6]/80 relative overflow-hidden min-h-[500px] justify-center">
+              <div className="w-full overflow-x-auto pt-10 pb-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+                <ComponentPreview 
+                  id="ai-generated-svg" 
+                  figmaSvg={stitchSvgWithDRD(generatedComp.svg, generatedComp.drd, generatedComp.title)}
+                >
+                  <div className="flex flex-col items-center min-w-max px-8">
+                    <div 
+                      className="shadow-2xl rounded-2xl overflow-hidden bg-white border border-gray-100"
+                      dangerouslySetInnerHTML={{ __html: generatedComp.svg }} 
+                    />
+                  </div>
+                </ComponentPreview>
+              </div>
+            </div>
+
+            {generatedComp.drd && (
+              <div className="px-12 py-16 bg-white border-t border-gray-100">
+                <div className="w-full bg-[#f8fafc] border border-gray-100/50 rounded-[32px] p-12 shadow-sm">
+                  <h5 className="text-xl font-bold text-blue-500 mb-10 border-b border-gray-100/50 pb-6 tracking-tight">
+                    DESIGN REQUIREMENT DOCUMENT
+                  </h5>
+                  
+                  <div className="space-y-16">
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-4">OBJECTIVE & DESIGN RATIONALE</span>
+                      <p className="text-2xl text-gray-900 font-bold leading-tight mb-4">{generatedComp.drd.objective}</p>
+                      {generatedComp.drd.rationale && (
+                        <p className="text-base text-gray-500 italic leading-relaxed max-w-4xl">
+                          {generatedComp.drd.rationale}
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-20 gap-y-10">
+                      <div>
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-4">ACCESSIBILITY (WCAG)</span>
+                        <p className="text-sm text-gray-600 leading-relaxed font-medium">{generatedComp.drd.accessibility}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-4">INTERACTION BEHAVIOR</span>
+                        <p className="text-sm text-gray-600 leading-relaxed font-medium">{generatedComp.drd.behavior}</p>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-4">DESIGN SYSTEM TOKENS</span>
+                      <p className="text-sm text-blue-500 font-bold tracking-wide">
+                        {(generatedComp.drd.tokens_used || []).join(', ')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 text-center">
+              <p className="text-xs text-gray-500 italic">
+                Arahkan kursor ke komponen untuk tombol "Copy to Figma"
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PREVIEW KODE AI */}
+      {showAiCodeModal && generatedComp && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-5 border-b border-gray-200 bg-gray-50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Code2 size={20} /></div>
+                <div>
+                  <h3 className="font-bold text-gray-900">Source Code: {generatedComp.title}</h3>
+                  <p className="text-xs text-gray-500">React + Tailwind CSS Component</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowAiCodeModal(false)} 
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-0 flex-1 overflow-hidden relative bg-gray-900">
+              <div className="absolute top-4 right-4 z-10">
+                <button 
+                  onClick={() => handleCopy(generatedComp.code, 'ai-generated-code')} 
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 shadow-lg"
+                >
+                  {copiedVar === 'ai-generated-code' ? <CheckCircle2 size={14} className="text-green-300" /> : <Copy size={14} />}
+                  {copiedVar === 'ai-generated-code' ? 'Tersalin!' : 'Salin Kode'}
+                </button>
+              </div>
+              <pre className="p-8 pt-12 h-full overflow-y-auto text-gray-100 text-sm font-mono leading-relaxed">
+                <code>{generatedComp.code}</code>
+              </pre>
+            </div>
+
+            <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
+              <button 
+                onClick={() => setShowAiCodeModal(false)}
+                className="px-6 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 

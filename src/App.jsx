@@ -1735,9 +1735,17 @@ ATURAN WAJIB:
 
       {/* SIDEBAR */}
       <aside className="w-full md:w-64 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-6 border-b border-gray-200 flex items-center gap-3">
-          <div className="p-2 rounded-lg text-white" style={{ backgroundColor: cPrimary }}><Layers size={20} /></div>
-          <div><h1 className="font-bold text-gray-900 tracking-tight">dsm-sid</h1><p className="text-xs text-gray-500">Variabel & Token</p></div>
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 rounded-lg text-white" style={{ backgroundColor: cPrimary }}><Layers size={20} /></div>
+            <div>
+              <h1 className="font-bold text-gray-900 tracking-tight leading-none mb-1">dsm-sid</h1>
+              <p className="text-[11px] text-gray-500 font-medium">Design System Master</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-[9px] font-bold rounded uppercase tracking-wider border border-gray-200">v1.2.4-stable</span>
+          </div>
         </div>
         
         <nav className="p-4 flex-grow space-y-1">
@@ -1760,18 +1768,10 @@ ATURAN WAJIB:
         </nav>
 
         {/* SIDEBAR FOOTER */}
-        <div className="p-6 border-t border-gray-100 mt-auto">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-[10px] font-bold rounded uppercase tracking-wider border border-gray-200">v1.2.4-stable</span>
-            </div>
-            <p className="text-[11px] text-gray-600 font-semibold tracking-tight">
-              sketchdarisenk.design
-            </p>
-            <p className="text-[10px] text-gray-400">
-              © 2026 • All Rights Reserved
-            </p>
-          </div>
+        <div className="px-6 py-4 border-t border-gray-100 mt-auto">
+          <p className="text-[10px] text-gray-400 font-medium">
+            © 2026 • Registered sketchdarisenk
+          </p>
         </div>
       </aside>
 

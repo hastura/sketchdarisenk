@@ -1758,6 +1758,21 @@ ATURAN WAJIB:
             );
           })}
         </nav>
+
+        {/* SIDEBAR FOOTER */}
+        <div className="p-6 border-t border-gray-100 mt-auto">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-[10px] font-bold rounded uppercase tracking-wider border border-gray-200">v1.2.4-stable</span>
+            </div>
+            <p className="text-[11px] text-gray-600 font-semibold tracking-tight">
+              sketchdarisenk.design
+            </p>
+            <p className="text-[10px] text-gray-400">
+              © 2026 • All Rights Reserved
+            </p>
+          </div>
+        </div>
       </aside>
 
       {/* KONTEN UTAMA */}
